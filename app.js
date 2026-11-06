@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const EMPLOYEES = [
+  let EMPLOYEES = [
     { id: "EMP001", name: "Karthik", role: "Homestay Operations" },
     { id: "EMP002", name: "Koushik", role: "Sales" }
   ];
@@ -30,14 +30,59 @@
   }
   async function syncToBackend() {
     try {
-      const response = await fetch(config.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "syncSnapshot", data: db }) });
-      if (!response.ok) throw new Error("Backend returned " + response.status);
-      $("connectionText").textContent = "Connected";
-      $("connectionText").previousElementSibling.style.background = "#29a46d";
+      // Apps Script ContentService does not expose configurable CORS headers.
+      // A simple no-cors POST sends the write; a JSONP read verifies it afterwards.
+      await fetch(config.API_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "syncSnapshot", data: db })
+      });
+      $("connectionText").textContent = "Sync sent";
+      setTimeout(loadFromBackend, 1600);
     } catch (error) {
       console.error(error);
       $("connectionText").textContent = "Sync unavailable";
     }
+  }
+  function loadFromBackend() {
+    if (!config.API_URL) return;
+    const callbackName = "__attendanceLoad_" + Date.now();
+    const script = document.createElement("script");
+    let finished = false;
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      delete window[callbackName];
+      script.remove();
+    };
+    window[callbackName] = payload => {
+      cleanup();
+      if (!payload || !payload.ok || !payload.data) {
+        $("connectionText").textContent = "Access denied";
+        showToast(payload?.error || "Could not load spreadsheet records.");
+        return;
+      }
+      db = {
+        attendance: payload.data.attendance || [],
+        notes: payload.data.notes || [],
+        absences: payload.data.absences || [],
+        audit: payload.data.audit || []
+      };
+      if (Array.isArray(payload.data.employees) && payload.data.employees.length) {
+        EMPLOYEES = payload.data.employees.filter(e => e.active !== false).map(e => ({ id:e.id, name:e.name, role:e.role }));
+      }
+      localStorage.setItem(storageKey, JSON.stringify(db));
+      $("connectionText").textContent = "Connected";
+      $("connectionText").previousElementSibling.style.background = "#29a46d";
+      render();
+    };
+    script.onerror = () => {
+      cleanup();
+      $("connectionText").textContent = "Connection failed";
+    };
+    script.src = config.API_URL + (config.API_URL.includes("?") ? "&" : "?") + "callback=" + callbackName + "&_=" + Date.now();
+    document.head.appendChild(script);
   }
   const getRecord = (date, employeeId) => db.attendance.find(r => r.date === date && r.employeeId === employeeId);
   function audit(action, employeeId, recordId, previousValue, newValue) {
@@ -222,6 +267,9 @@
   const firstDay = localDate(new Date(now.getFullYear(),now.getMonth(),1));
   $("historyFrom").value = firstDay;
   $("historyTo").value = localDate();
-  if (config.API_URL) { $("connectionText").textContent = "Connecting"; syncToBackend(); }
   render();
+  if (config.API_URL) {
+    $("connectionText").textContent = "Connecting";
+    loadFromBackend();
+  }
 })();
