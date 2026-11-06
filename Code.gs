@@ -101,12 +101,17 @@ function readSnapshot_() {
 
   return {
     employees: employees,
-    attendance: readTable_("attendance").map(row => ({
-      id: row["Record ID"], date: row.Date, employeeId: row["Employee ID"],
-      status: row["Attendance Status"], checkin: row["Check-in Time"],
-      salesClose: row["Sales Closing Time"], logout: row["Final Logout Time"],
-      note: row["Admin Notes"], updatedAt: row["Last Updated"]
-    })),
+    attendance: readTable_("attendance").map(row => {
+      const absence = readTable_("absences").find(item => item.Date === row.Date && item["Employee ID"] === row["Employee ID"]);
+      return {
+        id: row["Record ID"], date: row.Date, employeeId: row["Employee ID"],
+        status: row["Attendance Status"], checkin: row["Check-in Time"],
+        salesClose: row["Sales Closing Time"], logout: row["Final Logout Time"],
+        note: row["Admin Notes"], updatedAt: row["Last Updated"],
+        absenceReason: absence ? absence["Reason Category"] : "",
+        absenceRemarks: absence ? absence["Additional Remarks"] : ""
+      };
+    }),
     notes: readTable_("notes").map(row => ({
       id: row["Note ID"], date: row.Date, time: row.Time,
       employeeId: row["Employee ID"], note: row.Note, updatedBy: row["Updated By"]
